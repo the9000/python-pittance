@@ -1,6 +1,5 @@
-"""General-purpose utility functions and classes."""
+# The Either or Result, a functional alternative to exceptions.
 
-# TODO: factor out
 class Result(object):
   """An exclusive pair, Value or Error, akin to Scala's Either.
 
@@ -9,18 +8,18 @@ class Result(object):
   """
 
   @classmethod
-  def AsValue(cls, payload):
+  def asValue(cls, payload):
     """Returns a value-carrying Result."""
     return cls(payload, None)
 
   @classmethod
-  def AsError(cls, payload):
+  def asError(cls, payload):
     """Returns an error-carrying Result."""
     return cls(None, payload)
 
-  # pylint: disable=g-doc-args
+  # TODO: pass __has_value explicitly
   def __init__(self, value, error):
-    """Must be considered private. Use .AsValue or .AsError classmethods."""
+    """Must be considered private. Use .asValue or .asError classmethods."""
     assert (value is None) ^ (error is None), 'Set either value or error'
     if error:
       self.__payload = error
@@ -48,34 +47,82 @@ class Result(object):
 
   def __repr__(self):
     if self.__has_value:
-      return 'Result.AsValue(%r)' % self.__payload
+      return 'Result.asValue(%r)' % (self.__payload,)
     else:
-      return 'Result.AsError(%r)' % self.__payload
+      return 'Result.asError(%r)' % (self.__payload,)
 
-  # a true fmap would be too anti-idiomatic, so a few special cases follow
+  @classmethod
+  def _errorFromException(cls, e):
+    return cls.asError((e.__class__, e.message))
+      
+  @classmethod
+  def ize(cls, function, exceptions=(StandardError,)):
+    """A function decorator, makes a plain function return a Result.
 
-  def _Fmap(self, function, exceptions):
+    Args:
+      function: a plain function that may raise excpetions.
+      exceptions: a list of exception classes to turn into errors.
+
+    Returns:
+      function wrapped in a handler that converts exceptions and return value.
+    """
+    # TODO: allow stacktrace collection if desired
+    def rezultizeWrapped(*args, **kwargs):
+      try:
+        return cls.asValue(function(*args, **kwargs))
+      except exceptions as e:
+        return cls._errorFromException(e)
+
+    return rezultizeWrapped
+      
+      
+  # Implement fmap for several popular types
+
+  def fmapExcept(self, function, exceptions=(StandardError,)):
+    """fmap for exceptions: Converts given exceptions into error value.
+
+    Args:
+      function: a 1-argument callable; self.value will be the argument.
+      exceptions: a list of exception classes to catch.
+
+    Returns:
+      either asValue(function(self.value)) if none of exceptions was raised,
+      or asError((exception class, exception message)).
+    """
     if not self.has_value:
       return self
     try:
-      return self.AsValue(function())
+      return self.asValue(function(self.value))
     except exceptions as e:
-      return self.AsError('%s: %s' % (e.__class__.__name__, e.message))
+      return self._errorFromException(e)
 
-  def GetItem(self, key):
-    """Emulates doing index acces, like [key].
+  def getItem(self, key):
+    """Emulates doing index access, like [key]; wraps access errors.
 
     Args:
       key: mapping access key.
 
     Returns:
-      if self is a value, and value[key] succeeds: Result.AsValue(value[key])
-      else if value[key] fails: Result.AsError(the index error message)
+      if self is a value, and value[key] succeeds: Result.asValue(value[key])
+      else if value[key] fails: Result.asError(the index error message)
       else if self is an error: self.
     """
-    return self._fmap(lambda: self.value[key], (IndexError, KeyError))
+    return self.fmapExcept(lambda x: x[key], (IndexError, KeyError))
 
-  __getitem__ = GetItem
+  __getitem__ = getItem
+
+  @classmethod
+  def map(cls, function, sequence, exceptions=(StandardError,)):
+    """Replacement for built-in map(). Wraps every invocation of function.
+
+    Args:
+      function: a callable with 1 argument; items from sequence are fed to it.
+      sequence: a sequence.
+
+    Returns:
+      A list or Results of application of function to each element of sequence.
+    """
+    return []
 
   def ParseInt(self):
     """Emulates doing index acces, like [key].
@@ -84,61 +131,10 @@ class Result(object):
       key: mapping access key.
 
     Returns:
-      if self is a value, and value[key] succeeds: Result.AsValue(value[key])
-      else if value[key] fails: Result.AsError(the index error message)
+      if self is a value, and value[key] succeeds: Result.asValue(value[key])
+      else if value[key] fails: Result.asError(the index error message)
       else if self is an error: self.
     """
-    return self._fmap(lambda: int(self.value), ValueError)
+    return self._fmap(int, (ValueError,))
 
 
-def OnlyOne(a_list):
-  """Asserts that the list has only one element.
-
-  Typical usage: foo = OnlyOne(db.SearchForFoos(id=foo_id))
-
-  Args:
-    a_list: an allegedly 1-element list.
-  Returns:
-    a_list[0], the first element.
-  """
-  assert len(a_list) == 1, 'Got %d items' % len(a_list)
-  return a_list[0]
-
-
-class Timer(object):
-  """Tracks time spent since construction or the previous Yank."""
-  # NOTE: we use time.time() and not time.clock() as the latter appears broken
-
-  def __init__(self):
-    self.timestamp = time.time()
-
-  def Yank(self):
-    """Read and reset the timer.
-
-    Returns:
-      number of seconds passed since last Yank() or construction,
-      as a floating point per time.time(), expect microsecond resolution.
-    """
-    last_timestamp = self.timestamp
-    self.timestamp = time.time()  # time.clock() gives terrible resolution
-    return self.timestamp - last_timestamp
-
-
-def Percent(value, total):
-  """Shows what percent is value relative to total.
-
-  Args:
-    value: a number.
-    total: a number, including 0.
-  Returns:
-    Percent as a float, 100 * value / number if number is not 0;
-    100.0 if value = total = 0;
-    inf otherwise (sign is ignored).
-  """
-  if total != 0:
-    return 100.0 * value / total
-  else:
-    if value == 0:
-      return 100.0  # 0 of 0 is 100%
-    else:
-      return float('inf')  # value/0 is infinity
