@@ -54,7 +54,7 @@ class Result(object):
   def _errorFromException(cls, e, want_stacktrace):
     stacktrace = traceback.format_exc() if want_stacktrace else None
     return cls.asError(CaughtException(e, stacktrace))
-          
+
   @classmethod
   def ize(cls, exceptions=(StandardError,), want_stacktrace=True):
     """A function decorator, makes a plain function return a Result.
@@ -154,31 +154,3 @@ class Result(object):
 
 
 CaughtException = namedtuple('CaughtException', ('exception', 'stacktrace'))
-
-
-
-def xdec(amt):
-  def mkwrapper(f, amt):
-    def wrapper(*args, **kwargs):
-      return f(*args, **kwargs) - amt  # 1 is the default amt
-    wrapper.__doc__ = f.__doc__
-    wrapper.__name__ = 'xdec.wrapper(' + f.__name__ + ')'
-    return wrapper
-    
-  if callable(amt):
-    # we are called without param list, as @dec
-    return mkwrapper(amt, 1)
-  else:
-    # we are called as @dec(n)
-    def deco(f):
-      return mkwrapper(f, amt)
-    return deco
-    
-
-@xdec
-def foo1(x):
-  return x * 2
-
-@xdec(4)
-def foo2(x):
-  return x * 2
